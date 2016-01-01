@@ -1,23 +1,27 @@
 package ch.hsr.whitespace.javapilot.akka;
 
 import com.zuehlke.carrera.relayapi.messages.RaceStartMessage;
+import com.zuehlke.carrera.relayapi.messages.RoundTimeMessage;
 import com.zuehlke.carrera.relayapi.messages.SensorEvent;
-import com.zuehlke.carrera.timeseries.FloatingHistory;
+import com.zuehlke.carrera.relayapi.messages.VelocityMessage;
 
 import akka.actor.ActorRef;
 import akka.actor.Props;
 import akka.actor.UntypedActor;
-import ch.hsr.whitespace.javapilot.model.data_analysis.GyrZGraph;
+import ch.hsr.whitespace.javapilot.algorithms.MovingAverages;
+import ch.hsr.whitespace.javapilot.model.data.analysis.GyrZGraph;
+import ch.hsr.whitespace.javapilot.model.data.analysis.RoundTimeGraph;
+import ch.hsr.whitespace.javapilot.model.data.analysis.VelocityGraph;
 
 public class DataAnalyzerActor extends UntypedActor {
 
-	private FloatingHistory smoothedValues;
+	private MovingAverages movingAverages;
 
 	public DataAnalyzerActor() {
-		smoothedValues = new FloatingHistory(8);
+		movingAverages = new MovingAverages();
 	}
 
-	public static Props props(ActorRef pilot, int power) {
+	public static Props props(ActorRef pilot) {
 		return Props.create(DataAnalyzerActor.class, () -> new DataAnalyzerActor());
 	}
 
@@ -27,19 +31,30 @@ public class DataAnalyzerActor extends UntypedActor {
 			handleSensorEvent((SensorEvent) message);
 		} else if (message instanceof RaceStartMessage) {
 			handleRaceStart((RaceStartMessage) message);
+		} else if (message instanceof RoundTimeMessage) {
+			handleRoundTimeMessage((RoundTimeMessage) message);
+		} else if (message instanceof VelocityMessage) {
+			handleVelocityMessage((VelocityMessage) message);
 		}
 	}
 
+	private void handleVelocityMessage(VelocityMessage message) {
+		VelocityGraph.liveInstance().storeVelocity(message.getTimeStamp(), message.getVelocity());
+	}
+
+	private void handleRoundTimeMessage(RoundTimeMessage message) {
+		RoundTimeGraph.liveInstance().storeRoundTime(message.getRoundDuration());
+	}
+
 	private void handleRaceStart(RaceStartMessage message) {
-		GyrZGraph.instance().reset();
+		GyrZGraph.liveInstance().reset();
+		RoundTimeGraph.liveInstance().reset();
 	}
 
 	private void handleSensorEvent(SensorEvent event) {
 		double gyrZ = event.getG()[2];
-		smoothedValues.shift(gyrZ);
-
-		GyrZGraph.instance().storeValue(event.getTimeStamp(), gyrZ);
-		GyrZGraph.instance().storeValueSmoothed(event.getTimeStamp(), smoothedValues.currentMean());
+		movingAverages.shift(gyrZ);
+		GyrZGraph.liveInstance().storeValues(event.getTimeStamp(), gyrZ, movingAverages);
 	}
 
 }
